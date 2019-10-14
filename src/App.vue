@@ -1,35 +1,38 @@
 <template>
   <div id="app">
-    <!-- Buttons to login/logout -->
-    <button class="button" v-if="!user" @click="show=true">Login</button>
-    <button class="button" v-else @click="logout" style="background-color:red;">Logout {{user.accountName}}</button>
-    <!-- UAL Login Modal -->
-    <vueUAL 
-      ref="ual"
-      appName= "test-ual-vue"
-      :chains="chains"
-      :wallets="wallets"
-      v-show="show" 
-      @close="show=false" 
-      @cb="loginCallback"
-    />
-    <!-- show voting info/button if logged in -->
-    <transition name="fade">
-      <div v-if="userInfo" style="margin-top:20px;" >
-        <div>
-          <div v-if="voting">
-            <div v-if="userInfo.voter_info.proxy.length>0" style="color:grey;">You are currently voting for proxy: {{userInfo.voter_info.proxy}}</div>
-            <div v-else style="color:grey;">You are currently voting for {{userInfo.voter_info.producers.length}} producers</div>
-            <button v-if="notVoted" class="button" size="small" @click="vote">Refresh your vote</button>
-          </div>
-          <div v-if="!voting">
-            <p style="color:grey;">You have never voted with this account, please vote for EOS Titan Proxy</p>
-            <button class="button" size="small" @click="vote">Vote EOS Titan</button>
+    <div class="card">
+      <div class="title">Account
+        <div class="current" >
+          <span v-if="user">{{user.accountName}}</span>
+        </div>
+      </div>
+      <!-- Buttons to login/logout -->
+      <button class="button" v-if="!user" @click="show=true">Login</button>
+      <button class="button" v-else @click="logout" style="background-color:#d84c4c;">Logout</button>
+      <!-- UAL Login Modal -->
+      <vueUAL 
+        ref="ual"
+        :appName="appName"
+        :chains="chains"
+        :wallets="wallets"
+        v-show="show" 
+        @close="show=false" 
+        @cb="loginCallback"
+      />
+    </div>
+    <!-- show stake div if logged in -->
+    <transition-group name="fade">
+      <div  v-if="userInfo" class="card" key="stakingCard">
+        <div class="title">Stake
+          <div class="current" style="font-family:monospace;font-size:12px;margin-top:-3px;">
+            <div v-if="stake">CPU {{stake.cpu}}</div>
+            <div v-if="stake">NET {{stake.net}}</div>
           </div>
         </div>
-        <p v-html="message"></p>
-       </div>
-    </transition>
+        <button class="button" size="small" @click="addStake">Stake 0.0002 EOS</button>
+        <p style="font-style:italic;padding:15px" v-html="message"></p>
+      </div>
+    </transition-group>
     
   </div>
 </template>
@@ -37,27 +40,28 @@
 <script>
 import vueUAL from './components/login.vue';
 import { Scatter } from 'ual-scatter';
-import axios from 'axios';
 import { Ledger } from 'ual-ledger';
 import { Lynx } from 'ual-lynx';
 import { TokenPocket } from 'ual-token-pocket';
-const appName = 'test-ual'
+
+const appName = 'test-ual-vue'
+const api = "https://eos.greymass.com/v1/chain/";
 const chains = [{
-    chainId: 'aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906',
-    rpcEndpoints: [{
-        protocol: 'https',
-        host: 'api.eostitan.com',
-        port: '443',
-    }]
+  chainId: 'aca376f206b8fc25a6ed44dbdc66547c36c6c33e3a119ffbeaef943642f0e906',
+  rpcEndpoints: [{
+    protocol: 'https',
+    host: 'eos.greymass.com',
+    port: '443',
+  }]
 }];
-const api = "https://api.eostitan.com/v1/chain/";
+
 export default {
   name: 'app',
   components: {vueUAL},
   data(){
     return{
-      test:"",
-      chains:chains,
+      appName,
+      chains,
       user:null,
       authenticator:null,
       wallets:[
@@ -66,7 +70,6 @@ export default {
         new Lynx(chains),
         new TokenPocket(chains),
       ],
-      notVoted:true,
       message:'',
       userInfo:null,
       show: false,
@@ -74,8 +77,11 @@ export default {
   },
   methods:{
     logout(){ 
-      this.notVoted = true;
+      this.message = '';
       this.$refs.ual.logout(); 
+    },
+    async post(url, ep, params){
+      return fetch(`${url}${ep}`,{ method: 'post',body: JSON.stringify(params)}).then( resp=> resp.json());
     },
     loginCallback(user){
       this.user = user;
@@ -83,60 +89,83 @@ export default {
     },
     async updateAccount(){
       if (this.user) {
-        const res = await axios.post(api + "get_account", {account_name: this.user.accountName});
-        this.userInfo = res.data;
+        const res = await this.post(api, "get_account", {account_name: this.user.accountName})
+        this.userInfo = res;
       }
       else this.userInfo = null;
     },
     async sign(actions, cb, broadcast=true){
-      this.message = "Waiting for user to sign transaction"
       try{
         const tx = await this.user.signTransaction({actions:actions}, {broadcast:broadcast});
         if (cb && typeof cb === 'function') cb(tx);
       }catch(ex){ if (cb && typeof cb === 'function') cb(ex);}
     },
-    async vote(){
-      let data;
-      if (this.voting)
-        data = {voter: this.userInfo.account_name, proxy:this.userInfo.voter_info.proxy, producers:this.userInfo.voter_info.producers};
-      else data = {voter: this.userInfo.account_name, proxy:'eostitanvote', producers:[]};
+    async addStake(){
       const actions = [{
         account: "eosio",
-        name: "voteproducer",
+        name: "delegatebw",
         authorization: [{ actor: this.userInfo.account_name, permission: "active"}],
-        data: data,
+        data: {
+          receiver: this.userInfo.account_name,
+          from:  this.userInfo.account_name,
+          stake_net_quantity:"0.0001 EOS",
+          stake_cpu_quantity:"0.0001 EOS",
+          transfer: false
+        },
       }];
+      this.message = "Waiting for user to sign transaction"
       this.sign(actions, res=>{
         if (res.transactionId){
           this.message = `Thank you for testing UAL <a target="_blank" href="https://eosq.app/tx/${res.transactionId}/"><button class="button small" >View Transaction</button></a>`
-          this.updateAccount();
-          this.notVoted = false;
+          
+         this.updateAccount();
         }
         else this.message = res.message||res;
       });
     },
   },
   computed:{
-    voting(){
-      if (this.userInfo && this.userInfo.voter_info && (this.userInfo.voter_info.proxy.length>0 || this.userInfo.voter_info.producers.length>0 ))
-        return true;
-      else return false;
+    stake(){
+      if (!this.userInfo) return null;
+      return {cpu:this.userInfo.total_resources.cpu_weight,net:this.userInfo.total_resources.net_weight}
     }
   },
 }
 </script>
 
 <style>
+p, div{color:white;margin-bottom:0px;margin-top:0px;}
+html{background-color:#1a1e35;}
+.card{
+  background-color:#212238;
+  max-width:400px;
+  margin:30px auto;
+}
+.card .title{
+  width:100%;
+  text-align: left;
+  padding:10px 0px;
+  text-indent: 10px;
+  background-color:#050a28;
+  margin-bottom:10px;
+}
+#ual-modal-selection-content{background-color: #212238 !important}
+.card .current{
+  float: right;
+  margin-right: 10px;
+  color: #a8a8ad;
+}
+.card .current div{ color: #a8a8ad;}
 .button{
   border: none;
   color: white;
-  padding: 15px 32px;
+  padding: 8px 14px;
   text-align: center;
   text-decoration: none;
   display: inline-block;
   font-size: 16px;
-  margin:15px;
-  background-color: #4CAF50;
+  margin:10px 0;
+  background-color: #53a556;
   cursor:pointer;
 }
 .button a{
