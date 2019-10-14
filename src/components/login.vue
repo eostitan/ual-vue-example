@@ -143,7 +143,7 @@ export default {
     },
     async login(w) {
       w.loading = true;
-      let name = w.name;
+      let name = w.text;
       this.loginMessage = `Connecting to ${name} ...`;
       this.authenticator = this.ual.authenticators.find(
         auth => auth.constructor.name == name
